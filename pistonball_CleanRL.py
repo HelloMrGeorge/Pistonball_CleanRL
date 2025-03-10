@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 from torch.distributions.categorical import Categorical
 
+__all__ = ["Agent", "Agent_ADG", "batchify_obs", "batchify", "unbatchify"]
 
 class Agent(nn.Module):
     def __init__(self, num_actions):
@@ -48,6 +49,72 @@ class Agent(nn.Module):
         if action is None:
             action = probs.sample()
         return action, probs.log_prob(action), probs.entropy(), self.critic(hidden)
+    
+    def forward(self, x, action=None):
+        return self.get_action_and_value(x, action)
+    
+
+class Agent_ADG(nn.Module):
+    def __init__(self, num_actions, embedding_dim=64):
+        super().__init__()
+        
+        self.network = nn.Sequential(
+            self._layer_init(nn.Conv2d(4, 32, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            self._layer_init(nn.Conv2d(32, 64, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            self._layer_init(nn.Conv2d(64, 128, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            nn.Flatten(),
+            self._layer_init(nn.Linear(128 * 8 * 8, 512)),
+            nn.ReLU(),
+        )
+        
+        self.action_embedding1 = nn.Embedding(num_actions, embedding_dim)
+        self.action_embedding2 = nn.Embedding(num_actions, embedding_dim)
+        
+        self.actor = self._layer_init(nn.Linear(512 + 2 * embedding_dim, num_actions))
+        self.critic = self._layer_init(nn.Linear(512 + 2 * embedding_dim, 1))
+    
+    def _layer_init(self, layer, std=np.sqrt(2), bias_const=0.0):
+        torch.nn.init.orthogonal_(layer.weight, std)
+        torch.nn.init.constant_(layer.bias, bias_const)
+        return layer
+    
+    def get_value(self, x):
+        return self.critic(self.network(x / 255.0))
+    
+    def get_action_and_value(self, x, actions):
+        action1, action2 = actions
+        hidden = self.network(x / 255.0)
+        action1_embedded = self.action_embedding1(action1).unsqueeze(0)
+        action2_embedded = self.action_embedding2(action2).unsqueeze(0)
+        hidden = torch.cat((hidden, action1_embedded, action2_embedded), dim=1)
+        logits = self.actor(hidden)
+        probs = Categorical(logits=logits)
+        action = probs.sample()
+        return action, probs.log_prob(action), probs.entropy(), self.critic(hidden)
+
+    def forward(self, x, action=None):
+        num_agents = x.shape[0]
+        x = x.unsqueeze(1)
+        action_base = torch.ones(num_agents + 2, dtype=torch.int)
+        log_prob = torch.zeros(num_agents)
+        entropy = torch.zeros(num_agents)
+        value = torch.zeros(num_agents)
+        if action is not None:
+            action_base[:-2] = action
+            for ind in range(num_agents - 1, -1, -1):
+                depend_actions = action_base[ind:ind+2]
+                _, log_prob[ind], entropy[ind], value[ind] = self.get_action_and_value(x[ind], depend_actions)
+        else:
+            for ind in range(num_agents - 1, -1, -1):
+                depend_actions = action_base[ind:ind+2]
+                action_base[ind], log_prob[ind], entropy[ind], value[ind] = self.get_action_and_value(x[ind], depend_actions)
+        return action_base[:-2], log_prob, entropy, value
 
 
 def batchify_obs(obs, device):
