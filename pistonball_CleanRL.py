@@ -55,9 +55,10 @@ class Agent(nn.Module):
     
 
 class Agent_ADG(nn.Module):
-    def __init__(self, num_actions, embedding_dim=64):
+    def __init__(self, num_actions, embedding_dim=64, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
         
+        self.device = device
         self.network = nn.Sequential(
             self._layer_init(nn.Conv2d(4, 32, 3, padding=1)),
             nn.MaxPool2d(2),
@@ -101,10 +102,10 @@ class Agent_ADG(nn.Module):
     def forward(self, x, action=None):
         num_agents = x.shape[0]
         x = x.unsqueeze(1)
-        action_base = torch.ones(num_agents + 2, dtype=torch.int)
-        log_prob = torch.zeros(num_agents)
-        entropy = torch.zeros(num_agents)
-        value = torch.zeros(num_agents)
+        action_base = torch.ones(num_agents + 2, dtype=torch.int).to(self.device)
+        log_prob = torch.zeros(num_agents).to(self.device)
+        entropy = torch.zeros(num_agents).to(self.device)
+        value = torch.zeros(num_agents).to(self.device)
         if action is not None:
             action_base[:-2] = action
             for ind in range(num_agents - 1, -1, -1):
