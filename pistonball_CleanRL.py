@@ -124,7 +124,7 @@ class Agent_ADG_deprecated(nn.Module):
         return action_base[:-2], log_prob, entropy, value
 
 
-class Agent_ADG(nn.Module):
+class Agent_ADG_cat(nn.Module):
     def __init__(self, num_actions, embedding_dim=64):
         super().__init__()
         
@@ -174,6 +174,177 @@ class Agent_ADG(nn.Module):
         if action is None:
             action = probs.sample()
         return action, probs.log_prob(action), probs.entropy(), self.critic(hidden)
+
+
+class Agent_ADG_add1(nn.Module):
+    def __init__(self, num_actions, embedding_dim=64):
+        super().__init__()
+        
+        self.network = nn.Sequential(
+            self._layer_init(nn.Conv2d(4, 32, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            self._layer_init(nn.Conv2d(32, 64, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            self._layer_init(nn.Conv2d(64, 128, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            nn.Flatten(),
+            self._layer_init(nn.Linear(128 * 8 * 8, 512)),
+            nn.ReLU(),
+        )
+        self.actor = self._layer_init(nn.Linear(512, num_actions), std=0.01)
+        self.critic = self._layer_init(nn.Linear(512, 1))
+        
+        self.action_embedding1 = nn.Embedding(num_actions + 1, embedding_dim)
+        self.action_embedding2 = nn.Embedding(num_actions + 1, embedding_dim)
+        self.action_network = nn.Sequential(
+            self._layer_init(nn.Linear(2 * embedding_dim, 128)),
+            nn.ReLU(),
+            self._layer_init(nn.Linear(128, 64)),
+        )
+        self.action_actor = self._layer_init(nn.Linear(64, num_actions), std=0.01)
+        self.action_critic = self._layer_init(nn.Linear(64, 1))
+
+    
+    def _layer_init(self, layer, std=np.sqrt(2), bias_const=0.0):
+        torch.nn.init.orthogonal_(layer.weight, std)
+        torch.nn.init.constant_(layer.bias, bias_const)
+        return layer
+    
+    def forward(self, x, depend_actions, action=None):
+        action1, action2 = depend_actions[:, 0], depend_actions[:, 1]
+        action1_embedded = self.action_embedding1(action1)
+        action2_embedded = self.action_embedding2(action2)
+        action_hidden = torch.cat((action1_embedded, action2_embedded), dim=1)
+        action_hidden = self.action_network(action_hidden)
+
+        hidden = self.network(x / 255.0)
+
+        logits = self.actor(hidden) + self.action_actor(action_hidden)
+        value = self.critic(hidden) + self.action_critic(action_hidden)
+        probs = Categorical(logits=logits)
+
+        if action is None:
+            action = probs.sample()
+        return action, probs.log_prob(action), probs.entropy(), value
+
+
+class Agent_ADG_add2(nn.Module):
+    def __init__(self, num_actions, embedding_dim=64):
+        super().__init__()
+        
+        self.network = nn.Sequential(
+            self._layer_init(nn.Conv2d(4, 32, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            self._layer_init(nn.Conv2d(32, 64, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            self._layer_init(nn.Conv2d(64, 128, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            nn.Flatten(),
+            self._layer_init(nn.Linear(128 * 8 * 8, 512)),
+            nn.ReLU(),
+        )
+        self.actor = self._layer_init(nn.Linear(512, num_actions), std=0.01)
+        self.critic = self._layer_init(nn.Linear(512, 1))
+        
+        self.action_embedding1 = nn.Embedding(num_actions + 1, embedding_dim)
+        self.action_embedding2 = nn.Embedding(num_actions + 1, embedding_dim)
+        self.action_network = nn.Sequential(
+            self._layer_init(nn.Linear(2 * embedding_dim + 512, 128)),
+            nn.ReLU(),
+            self._layer_init(nn.Linear(128, 64)),
+            nn.ReLU(),
+        )
+        self.action_actor = self._layer_init(nn.Linear(64, num_actions), std=0.01)
+        self.action_critic = self._layer_init(nn.Linear(64, 1))
+
+    
+    def _layer_init(self, layer, std=np.sqrt(2), bias_const=0.0):
+        torch.nn.init.orthogonal_(layer.weight, std)
+        torch.nn.init.constant_(layer.bias, bias_const)
+        return layer
+    
+    def forward(self, x, depend_actions, action=None):
+        hidden = self.network(x / 255.0)
+
+        action1, action2 = depend_actions[:, 0], depend_actions[:, 1]
+        action1_embedded = self.action_embedding1(action1)
+        action2_embedded = self.action_embedding2(action2)
+        action_hidden= torch.cat((hidden, action1_embedded, action2_embedded), dim=1)
+        action_hidden = self.action_network(action_hidden)
+
+        logits = self.actor(hidden) + self.action_actor(action_hidden)
+        value = self.critic(hidden) + self.action_critic(action_hidden)
+        probs = Categorical(logits=logits)
+
+        if action is None:
+            action = probs.sample()
+        return action, probs.log_prob(action), probs.entropy(), value
+
+
+class Agent_ADG(nn.Module):
+    def __init__(self, num_actions, embedding_dim=64):
+        super().__init__()
+        
+        self.network = nn.Sequential(
+            self._layer_init(nn.Conv2d(4, 32, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            self._layer_init(nn.Conv2d(32, 64, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            self._layer_init(nn.Conv2d(64, 128, 3, padding=1)),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            nn.Flatten(),
+            self._layer_init(nn.Linear(128 * 8 * 8, 512)),
+            nn.ReLU(),
+        )
+        
+        self.ind_network = nn.Sequential(
+            self._layer_init(nn.Linear(512, 128)),
+            nn.ReLU(),
+        )
+        self.actor = self._layer_init(nn.Linear(128, num_actions), std=0.01)
+        self.critic = self._layer_init(nn.Linear(128, 1))
+        
+        self.action_embedding1 = nn.Embedding(num_actions + 1, embedding_dim)
+        self.action_embedding2 = nn.Embedding(num_actions + 1, embedding_dim)
+        self.action_network = nn.Sequential(
+            self._layer_init(nn.Linear(2 * embedding_dim + 512, 128)),
+            nn.ReLU(),
+        )
+        self.action_actor = self._layer_init(nn.Linear(128, num_actions), std=0.01)
+        self.action_critic = self._layer_init(nn.Linear(128, 1))
+
+    
+    def _layer_init(self, layer, std=np.sqrt(2), bias_const=0.0):
+        torch.nn.init.orthogonal_(layer.weight, std)
+        torch.nn.init.constant_(layer.bias, bias_const)
+        return layer
+    
+    def forward(self, x, depend_actions, action=None):
+        hidden = self.network(x / 255.0)
+        ind_hidden = self.ind_network(hidden)
+
+        action1, action2 = depend_actions[:, 0], depend_actions[:, 1]
+        action1_embedded = self.action_embedding1(action1)
+        action2_embedded = self.action_embedding2(action2)
+        action_hidden= torch.cat((hidden, action1_embedded, action2_embedded), dim=1)
+        action_hidden = self.action_network(action_hidden)
+
+        logits = self.actor(ind_hidden) + self.action_actor(action_hidden)
+        value = self.critic(ind_hidden) + self.action_critic(action_hidden)
+        probs = Categorical(logits=logits)
+
+        if action is None:
+            action = probs.sample()
+        return action, probs.log_prob(action), probs.entropy(), value
 
 
 def batchify_obs(obs, device):
